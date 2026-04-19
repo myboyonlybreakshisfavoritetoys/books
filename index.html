@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archive Reader</title>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --ui-color: rgba(255, 255, 255, 0.8);
+            --ui-bg: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            color: var(--ui-color);
+        }
+
+        /* Top Bar UI */
+        #top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #pdf-title {
+            font-weight: 600;
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            border-radius: 6px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.05);
+            margin-left: auto;
+        }
+
+        #page-counter {
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            border-radius: 6px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.05);
+            pointer-events: auto;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        /* Main Viewport */
+        #viewport {
+            width: 95%;
+            height: 80%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 2000px;
+            touch-action: none;
+        }
+
+        #flipbook {
+            display: none;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.8);
+        }
+
+        #flipbook .page {
+            background: white;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* Bottom UI */
+        .controls-bar {
+            position: fixed;
+            bottom: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .icon-btn {
+            background: var(--ui-bg);
+            border: 1px solid rgba(255,255,255,0.05);
+            color: white;
+            padding: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .icon-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        #loader {
+            position: fixed;
+            z-index: 1000;
+            background: #000;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div id="status-text">Synchronizing Archive...</div>
+    </div>
+
+    <div id="top-bar">
+        <div id="page-counter">PAGE 1 / -</div>
+        <div id="pdf-title">Loading...</div>
+    </div>
+
+    <div id="viewport">
+        <div id="flipbook"></div>
+    </div>
+
+    <div class="controls-bar">
+        <button class="icon-btn" onclick="toggleFullscreen()" title="Fullscreen">
+            <i data-lucide="maximize"></i>
+        </button>
+        <button class="icon-btn" onclick="window.close()" title="Close Viewer">
+            <i data-lucide="x"></i>
+        </button>
+    </div>
+
+    <script>
+        // ==========================================
+        //  ARCHIVE CONFIGURATION (Edit these lines)
+        // ==========================================
+        const PDF_URL = 'https://solquelumgazette.github.io/executive-orders/Executive%20Order%20No.%20001.pdf';
+        const PDF_DISPLAY_NAME = 'Executive Order No. 001';
+        // ==========================================
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        async function initViewer() {
+            const status = document.getElementById('status-text');
+            const flipbook = $('#flipbook');
+            const titleEl = document.getElementById('pdf-title');
+            const counterEl = document.getElementById('page-counter');
+
+            titleEl.innerText = PDF_DISPLAY_NAME;
+
+            try {
+                const loadingTask = pdfjsLib.getDocument({ url: PDF_URL });
+                const pdf = await loadingTask.promise;
+                const numPages = pdf.numPages;
+
+                for (let i = 1; i <= numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 2 });
+                    
+                    const pageDiv = $('<div class="page"></div>');
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    pageDiv.append(canvas);
+                    flipbook.append(pageDiv);
+                }
+
+                const firstPage = await pdf.getPage(1);
+                const firstViewport = firstPage.getViewport({ scale: 1 });
+                const bookHeight = Math.min(window.innerHeight * 0.75, firstViewport.height * 1.5);
+                const aspectRatio = firstViewport.width / firstViewport.height;
+                const bookWidth = bookHeight * aspectRatio * 2;
+
+                $('#loader').fadeOut();
+                flipbook.css('display', 'block');
+
+                // Initialize Flipbook with updated event listeners
+                flipbook.turn({
+                    width: bookWidth,
+                    height: bookHeight,
+                    autoCenter: true,
+                    display: 'double',
+                    acceleration: true,
+                    elevation: 50,
+                    duration: 800,
+                    when: {
+                        turning: function(e, page, view) {
+                            // Update immediately when a turn starts
+                            updateCounter(page, numPages);
+                        },
+                        turned: function(e, page, view) {
+                            // Sync again when turn finishes
+                            updateCounter(page, numPages);
+                        }
+                    }
+                });
+
+                // Initial count
+                updateCounter(1, numPages);
+
+                // --- NAVIGATION HANDLERS ---
+
+                $(window).bind('keydown', function(e) {
+                    if (e.keyCode == 37 || e.keyCode == 38) flipbook.turn('previous');
+                    else if (e.keyCode == 39 || e.keyCode == 40) flipbook.turn('next');
+                });
+
+                let lastScrollTime = 0;
+                window.addEventListener('wheel', function(e) {
+                    const now = Date.now();
+                    if (now - lastScrollTime < 600) return;
+                    if (e.deltaY > 0) { flipbook.turn('next'); lastScrollTime = now; }
+                    else if (e.deltaY < 0) { flipbook.turn('previous'); lastScrollTime = now; }
+                }, { passive: true });
+
+                const mc = new Hammer(document.getElementById('viewport'));
+                mc.on("swipeleft", () => flipbook.turn("next"));
+                mc.on("swiperight", () => flipbook.turn("previous"));
+
+                $(window).resize(function() {
+                    const newHeight = Math.min(window.innerHeight * 0.75, firstViewport.height * 1.5);
+                    const newWidth = newHeight * aspectRatio * 2;
+                    flipbook.turn('size', newWidth, newHeight);
+                });
+
+                lucide.createIcons();
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Connection Blocked (CORS)";
+            }
+        }
+
+        function updateCounter(current, total) {
+            const counterEl = document.getElementById('page-counter');
+            if (counterEl) {
+                counterEl.innerText = `PAGE ${current} / ${total}`;
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else if (document.exitFullscreen) document.exitFullscreen();
+        }
+
+        $(document).ready(initViewer);
+    </script>
+</body>
+</html>
