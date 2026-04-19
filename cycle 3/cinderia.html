@@ -143,6 +143,11 @@
             transform: scale(0.95);
         }
 
+        .icon-btn.active-mode {
+            background: var(--accent);
+            color: black;
+        }
+
         /* Volume Slider Wrapper */
         .volume-container {
             display: flex;
@@ -262,6 +267,11 @@
             <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolume(this.value)">
         </div>
 
+        <!-- View Mode Toggle (Phone / Desktop) -->
+        <button class="icon-btn" id="view-mode-btn" onclick="toggleViewMode()" title="Toggle View Mode">
+            <i id="view-mode-icon" data-lucide="smartphone"></i>
+        </button>
+
         <!-- Next Page -->
         <button class="icon-btn" onclick="$('#flipbook').turn('next')" title="Next">
             <i data-lucide="chevron-right"></i>
@@ -280,7 +290,7 @@
 
     <script>
         // ==========================================
-        // CONFIGURATION: EDIT THESE VALUES
+        // CONFIGURATION
         // ==========================================
         const PDF_URL = 'https://book.renj.top/pdf/CinderiaFInal.pdf';
         const PDF_DISPLAY_NAME = 'Cinderia';
@@ -295,6 +305,10 @@
         let musicStarted = false;
         let totalPages = 0;
         let aspectRatio = 1;
+        
+        // VIEW MODE: 'double' (Desktop) or 'single' (Phone)
+        // Default is forced to double as requested.
+        let currentViewMode = 'double';
 
         async function initViewer() {
             const flipbook = $('#flipbook');
@@ -329,11 +343,9 @@
                 $('#loader').fadeOut();
                 flipbook.css('display', 'block');
 
-                // Initial Responsive Check
-                const isMobile = window.innerWidth <= 768;
-
+                // Initialize forced to 'double' regardless of screen width
                 flipbook.turn({
-                    display: isMobile ? 'single' : 'double',
+                    display: currentViewMode,
                     acceleration: true,
                     elevation: 50,
                     duration: 800,
@@ -348,6 +360,7 @@
 
                 resizeFlipbook();
                 updateCounter(1, totalPages);
+                updateViewModeUI();
                 lucide.createIcons();
 
                 // Keyboard Navigation
@@ -378,34 +391,56 @@
             }
         }
 
+        // UNRESPONSIVE LOGIC: resizeFlipbook now uses currentViewMode state instead of window width
         function resizeFlipbook() {
             const flipbook = $('#flipbook');
-            const isMobile = window.innerWidth <= 768;
-            const targetDisplay = isMobile ? 'single' : 'double';
-            
-            if (flipbook.turn('display') !== targetDisplay) flipbook.turn('display', targetDisplay);
-
             const containerW = window.innerWidth;
             const containerH = window.innerHeight;
             let bookH, bookW;
 
-            if (isMobile) {
-                bookW = containerW * 0.85;
+            if (currentViewMode === 'single') {
+                // Phone View Layout
+                bookW = containerW * 0.9;
                 bookH = bookW / aspectRatio;
-                if (bookH > containerH * 0.7) { 
-                    bookH = containerH * 0.7; 
+                if (bookH > containerH * 0.75) { 
+                    bookH = containerH * 0.75; 
                     bookW = bookH * aspectRatio; 
                 }
             } else {
-                // Wide Viewport
+                // Desktop (Two-Page) Layout
                 bookH = containerH * 0.75;
                 bookW = bookH * aspectRatio * 2;
-                if (bookW > containerW * 0.9) { 
-                    bookW = containerW * 0.9; 
+                if (bookW > containerW * 0.95) { 
+                    bookW = containerW * 0.95; 
                     bookH = (bookW / 2) / aspectRatio; 
                 }
             }
+            
             flipbook.turn('size', bookW, bookH);
+        }
+
+        function toggleViewMode() {
+            const flipbook = $('#flipbook');
+            currentViewMode = (currentViewMode === 'double') ? 'single' : 'double';
+            
+            // Apply mode change to turn.js
+            flipbook.turn('display', currentViewMode);
+            
+            // Refresh UI
+            updateViewModeUI();
+            resizeFlipbook();
+            updateCounter(flipbook.turn('page'), totalPages);
+        }
+
+        function updateViewModeUI() {
+            const icon = document.getElementById('view-mode-icon');
+            // Show icon of the mode you can switch TO
+            if (currentViewMode === 'double') {
+                icon.setAttribute('data-lucide', 'smartphone');
+            } else {
+                icon.setAttribute('data-lucide', 'monitor');
+            }
+            lucide.createIcons();
         }
 
         function jumpToPage(p) { $('#flipbook').turn('page', p); }
@@ -442,17 +477,14 @@
         }
 
         function updateCounter(current, total) {
-            const isDouble = $('#flipbook').turn('display') === 'double';
             let label;
-            
-            if (!isDouble || current === 1) {
+            if (currentViewMode === 'single' || current === 1) {
                 label = current;
             } else if (current >= total && total % 2 === 0) {
                 label = total;
             } else {
                 label = `${current}-${current + 1}`;
             }
-            
             document.getElementById('page-counter').innerText = `PAGE ${label} / ${total}`;
         }
 
