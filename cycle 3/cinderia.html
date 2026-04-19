@@ -81,8 +81,8 @@
 
         /* Main Viewport */
         #viewport {
-            width: 95%;
-            height: 80%;
+            width: 100%;
+            height: 100%;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -93,6 +93,7 @@
         #flipbook {
             display: none;
             box-shadow: 0 50px 100px rgba(0,0,0,0.8);
+            margin: auto;
         }
 
         #flipbook .page {
@@ -106,6 +107,7 @@
         canvas {
             max-width: 100%;
             max-height: 100%;
+            display: block;
         }
 
         /* Bottom UI */
@@ -113,7 +115,7 @@
             position: fixed;
             bottom: 30px;
             display: flex;
-            gap: 15px;
+            gap: 12px;
             align-items: center;
             z-index: 100;
         }
@@ -135,6 +137,10 @@
         .icon-btn:hover {
             background: rgba(255,255,255,0.2);
             transform: translateY(-2px);
+        }
+
+        .icon-btn:active {
+            transform: scale(0.95);
         }
 
         /* Volume Slider Wrapper */
@@ -183,13 +189,6 @@
             animation: spin 1s linear infinite;
         }
 
-        .error-state {
-            color: #ff4444;
-            text-align: center;
-            padding: 20px;
-        }
-
-        /* Music Prompt if blocked */
         #music-prompt {
             position: fixed;
             bottom: 100px;
@@ -211,6 +210,13 @@
         }
 
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+            #pdf-title { display: none; }
+            .controls-bar { bottom: 20px; gap: 8px; }
+            .icon-btn { padding: 10px; }
+            .volume-container:hover #volume-slider { width: 50px; }
+        }
     </style>
 </head>
 <body oncontextmenu="return false;">
@@ -233,12 +239,16 @@
         <div id="flipbook"></div>
     </div>
 
-    <!-- Background Audio Element -->
     <audio id="bg-music" loop preload="auto">
         <source id="audio-source" src="" type="audio/mpeg">
     </audio>
 
     <div class="controls-bar">
+        <!-- Jump to First -->
+        <button class="icon-btn" onclick="jumpToPage(1)" title="First Page">
+            <i data-lucide="chevrons-left"></i>
+        </button>
+
         <div class="volume-container">
             <button class="icon-btn" id="mute-btn" style="background:transparent; border:none; backdrop-filter:none;" onclick="toggleMute()">
                 <i id="volume-icon" data-lucide="volume-2"></i>
@@ -249,14 +259,18 @@
         <button class="icon-btn" onclick="toggleFullscreen()" title="Fullscreen">
             <i data-lucide="maximize"></i>
         </button>
+
+        <!-- Jump to Last -->
+        <button class="icon-btn" onclick="jumpToLast()" title="Last Page">
+            <i data-lucide="chevrons-right"></i>
+        </button>
+
         <button class="icon-btn" onclick="window.close()" title="Close Viewer">
             <i data-lucide="x"></i>
         </button>
     </div>
 
     <script>
-        // ==========================================
-        //  ARCHIVE CONFIGURATION
         // ==========================================
         const PDF_URL = 'https://book.renj.top/pdf/CinderiaFInal.pdf';
         const PDF_DISPLAY_NAME = 'Cinderia';
@@ -269,15 +283,13 @@
         const audioSource = document.getElementById('audio-source');
         const musicPrompt = document.getElementById('music-prompt');
         let musicStarted = false;
+        let totalPages = 0;
+        let aspectRatio = 1;
 
         async function initViewer() {
-            const status = document.getElementById('status-text');
             const flipbook = $('#flipbook');
-            const titleEl = document.getElementById('pdf-title');
+            document.getElementById('pdf-title').innerText = PDF_DISPLAY_NAME;
 
-            titleEl.innerText = PDF_DISPLAY_NAME;
-
-            // Setup Music
             if (BG_MUSIC_URL) {
                 audioSource.src = BG_MUSIC_URL;
                 audio.load();
@@ -285,19 +297,14 @@
             }
 
             try {
-                const loadingTask = pdfjsLib.getDocument({ 
-                    url: PDF_URL,
-                    disableAutoFetch: true,
-                    disableStream: true
-                });
-                
-                const pdf = await loadingTask.promise;
-                const numPages = pdf.numPages;
+                const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+                totalPages = pdf.numPages;
 
-                for (let i = 1; i <= numPages; i++) {
+                for (let i = 1; i <= totalPages; i++) {
                     const page = await pdf.getPage(i);
                     const viewport = page.getViewport({ scale: 2 });
-                    
+                    if (i === 1) aspectRatio = viewport.width / viewport.height;
+
                     const pageDiv = $('<div class="page"></div>');
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
@@ -309,101 +316,97 @@
                     flipbook.append(pageDiv);
                 }
 
-                const firstPage = await pdf.getPage(1);
-                const firstViewport = firstPage.getViewport({ scale: 1 });
-                const bookHeight = Math.min(window.innerHeight * 0.75, firstViewport.height * 1.5);
-                const aspectRatio = firstViewport.width / firstViewport.height;
-                const bookWidth = bookHeight * aspectRatio * 2;
-
                 $('#loader').fadeOut();
                 flipbook.css('display', 'block');
 
+                const isMobile = window.innerWidth <= 768;
+
                 flipbook.turn({
-                    width: bookWidth,
-                    height: bookHeight,
-                    autoCenter: true,
-                    display: 'double',
+                    display: isMobile ? 'single' : 'double',
                     acceleration: true,
                     elevation: 50,
                     duration: 800,
                     when: {
                         turning: function(e, page) { 
-                            updateCounter(page, numPages);
+                            updateCounter(page, totalPages);
                             attemptMusic(); 
-                        },
-                        turned: function(e, page) { updateCounter(page, numPages); }
+                        }
                     }
                 });
 
-                updateCounter(1, numPages);
+                resizeFlipbook();
+                updateCounter(1, totalPages);
+                lucide.createIcons();
 
-                // Global interaction listener to "unlock" audio context
-                document.body.addEventListener('mousedown', attemptMusic, { once: false });
-                document.body.addEventListener('touchstart', attemptMusic, { once: false });
-                document.body.addEventListener('keydown', attemptMusic, { once: false });
-
-                // Keyboard
-                $(window).bind('keydown', function(e) {
-                    if (e.keyCode == 37 || e.keyCode == 38) flipbook.turn('previous');
-                    else if (e.keyCode == 39 || e.keyCode == 40) flipbook.turn('next');
+                // Interactions
+                $(window).bind('keydown', (e) => {
+                    if (e.keyCode == 37) flipbook.turn('previous');
+                    else if (e.keyCode == 39) flipbook.turn('next');
                 });
 
-                // Wheel
-                let lastScrollTime = 0;
-                window.addEventListener('wheel', function(e) {
+                window.addEventListener('wheel', (e) => {
                     const now = Date.now();
-                    if (now - lastScrollTime < 600) return;
-                    if (Math.abs(e.deltaY) < 10) return; 
-                    if (e.deltaY > 0) { flipbook.turn('next'); lastScrollTime = now; }
-                    else if (e.deltaY < 0) { flipbook.turn('previous'); lastScrollTime = now; }
+                    if (window.lastScroll && now - window.lastScroll < 600) return;
+                    if (e.deltaY > 0) { flipbook.turn('next'); window.lastScroll = now; }
+                    else if (e.deltaY < 0) { flipbook.turn('previous'); window.lastScroll = now; }
                 }, { passive: true });
 
                 const mc = new Hammer(document.getElementById('viewport'));
-                mc.on("swipeleft", () => { flipbook.turn("next"); });
-                mc.on("swiperight", () => { flipbook.turn("previous"); });
+                mc.on("swipeleft", () => flipbook.turn("next"));
+                mc.on("swiperight", () => flipbook.turn("previous"));
 
-                $(window).resize(function() {
-                    const newHeight = Math.min(window.innerHeight * 0.75, firstViewport.height * 1.5);
-                    const newWidth = newHeight * aspectRatio * 2;
-                    flipbook.turn('size', newWidth, newHeight);
-                });
-
-                lucide.createIcons();
+                $(window).resize(resizeFlipbook);
+                document.body.addEventListener('click', attemptMusic, { once: false });
 
             } catch (err) {
-                console.error("PDF Load Error:", err);
-                status.innerHTML = `<div class="error-state">
-                    <b>ACCESS DENIED</b><br>
-                    <small>Verify PDF Link or CORS permissions.</small>
-                </div>`;
-                document.querySelector('.spinner').style.display = 'none';
+                console.error(err);
+                document.getElementById('status-text').innerHTML = "Access Denied / PDF Error";
             }
         }
 
+        function resizeFlipbook() {
+            const flipbook = $('#flipbook');
+            const isMobile = window.innerWidth <= 768;
+            const targetDisplay = isMobile ? 'single' : 'double';
+            
+            if (flipbook.turn('display') !== targetDisplay) flipbook.turn('display', targetDisplay);
+
+            const winW = window.innerWidth;
+            const winH = window.innerHeight;
+            let bookH, bookW;
+
+            if (isMobile) {
+                bookW = winW * 0.85;
+                bookH = bookW / aspectRatio;
+                if (bookH > winH * 0.7) { bookH = winH * 0.7; bookW = bookH * aspectRatio; }
+            } else {
+                bookH = winH * 0.75;
+                bookW = bookH * aspectRatio * 2;
+                if (bookW > winW * 0.9) { bookW = winW * 0.9; bookH = (bookW / 2) / aspectRatio; }
+            }
+            flipbook.turn('size', bookW, bookH);
+        }
+
+        function jumpToPage(p) { $('#flipbook').turn('page', p); }
+        function jumpToLast() { $('#flipbook').turn('page', totalPages); }
+
         function attemptMusic() {
             if (musicStarted || !BG_MUSIC_URL) return;
-            
             audio.play().then(() => {
-                console.log("Music started successfully.");
                 musicStarted = true;
                 musicPrompt.style.display = 'none';
-            }).catch(e => {
-                console.warn("Autoplay blocked. Showing manual prompt.", e);
-                musicPrompt.style.display = 'block';
-            });
+            }).catch(() => musicPrompt.style.display = 'block');
         }
 
         function startMusicManual() {
-            audio.play().then(() => {
-                musicStarted = true;
-                musicPrompt.style.display = 'none';
-            });
+            audio.play();
+            musicStarted = true;
+            musicPrompt.style.display = 'none';
         }
 
         function toggleMute() {
             audio.muted = !audio.muted;
-            const icon = document.getElementById('volume-icon');
-            icon.setAttribute('data-lucide', audio.muted ? 'volume-x' : 'volume-2');
+            document.getElementById('volume-icon').setAttribute('data-lucide', audio.muted ? 'volume-x' : 'volume-2');
             lucide.createIcons();
         }
 
@@ -411,22 +414,17 @@
             audio.volume = val;
             audio.muted = (val == 0);
             const icon = document.getElementById('volume-icon');
-            if (val == 0) icon.setAttribute('data-lucide', 'volume-x');
-            else if (val < 0.5) icon.setAttribute('data-lucide', 'volume-1');
-            else icon.setAttribute('data-lucide', 'volume-2');
+            icon.setAttribute('data-lucide', val == 0 ? 'volume-x' : (val < 0.5 ? 'volume-1' : 'volume-2'));
             lucide.createIcons();
         }
 
         function updateCounter(current, total) {
-            const counterEl = document.getElementById('page-counter');
-            if (counterEl) {
-                counterEl.innerText = `PAGE ${current} / ${total}`;
-            }
+            document.getElementById('page-counter').innerText = `PAGE ${current} / ${total}`;
         }
 
         function toggleFullscreen() {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-            else if (document.exitFullscreen) document.exitFullscreen();
+            else document.exitFullscreen();
         }
 
         $(document).ready(initViewer);
