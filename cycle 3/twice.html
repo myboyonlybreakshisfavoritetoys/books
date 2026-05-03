@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twice in a while | Cycle 3</title>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --ui-color: rgba(255, 255, 255, 0.8);
+            --ui-bg: rgba(255, 255, 255, 0.1);
+            --accent: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            color: var(--ui-color);
+        }
+
+        /* Top Bar UI */
+        #top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #pdf-title {
+            font-weight: 600;
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            border-radius: 6px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.05);
+            pointer-events: auto;
+        }
+
+        #page-counter {
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            border-radius: 6px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.05);
+            pointer-events: auto;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        /* Main Viewport */
+        #viewport {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 2000px;
+            touch-action: none;
+        }
+
+        #flipbook {
+            display: none;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.8);
+            margin: auto;
+        }
+
+        #flipbook .page {
+            background: white;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+
+        /* Bottom UI Controls */
+        .controls-bar {
+            position: fixed;
+            bottom: 30px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .icon-btn {
+            background: var(--ui-bg);
+            border: 1px solid rgba(255,255,255,0.05);
+            color: white;
+            padding: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .icon-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .icon-btn:active {
+            transform: scale(0.95);
+        }
+
+        .icon-btn.active-mode {
+            background: var(--accent);
+            color: black;
+        }
+
+        /* Volume Slider Wrapper */
+        .volume-container {
+            display: flex;
+            align-items: center;
+            background: var(--ui-bg);
+            padding: 0 15px 0 5px;
+            border-radius: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.05);
+            gap: 10px;
+        }
+
+        #volume-slider {
+            width: 0;
+            opacity: 0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        .volume-container:hover #volume-slider {
+            width: 80px;
+            opacity: 1;
+        }
+
+        #loader {
+            position: fixed;
+            z-index: 1000;
+            background: #000;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        #music-prompt {
+            position: fixed;
+            bottom: 100px;
+            background: var(--accent);
+            color: black;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: none;
+            z-index: 1001;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+            #pdf-title { display: none; }
+            .controls-bar { bottom: 20px; gap: 8px; }
+            .icon-btn { padding: 10px; }
+            .volume-container:hover #volume-slider { width: 50px; }
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div id="status-text">Synchronizing Archive...</div>
+    </div>
+
+    <div id="top-bar">
+        <div id="page-counter">PAGE 1 / -</div>
+        <div id="pdf-title">CINDERIA | CYCLE 3</div>
+    </div>
+
+    <div id="music-prompt" onclick="startMusicManual()">
+        🎵 Click to Enable Background Music
+    </div>
+
+    <div id="viewport">
+        <div id="flipbook"></div>
+    </div>
+
+    <audio id="bg-music" loop preload="auto">
+        <source id="audio-source" src="" type="audio/mpeg">
+    </audio>
+
+    <div class="controls-bar">
+        <!-- First Page -->
+        <button class="icon-btn" onclick="jumpToPage(1)" title="First Page">
+            <i data-lucide="chevrons-left"></i>
+        </button>
+
+        <!-- Previous Page -->
+        <button class="icon-btn" onclick="$('#flipbook').turn('previous')" title="Previous">
+            <i data-lucide="chevron-left"></i>
+        </button>
+
+        <!-- Volume Control -->
+        <div class="volume-container">
+            <button class="icon-btn" id="mute-btn" style="background:transparent; border:none; backdrop-filter:none;" onclick="toggleMute()">
+                <i id="volume-icon" data-lucide="volume-2"></i>
+            </button>
+            <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolume(this.value)">
+        </div>
+
+        <!-- View Mode Toggle (Phone / Desktop) -->
+        <button class="icon-btn" id="view-mode-btn" onclick="toggleViewMode()" title="Toggle View Mode">
+            <i id="view-mode-icon" data-lucide="smartphone"></i>
+        </button>
+
+        <!-- Next Page -->
+        <button class="icon-btn" onclick="$('#flipbook').turn('next')" title="Next">
+            <i data-lucide="chevron-right"></i>
+        </button>
+
+        <!-- Last Page -->
+        <button class="icon-btn" onclick="jumpToLast()" title="Last Page">
+            <i data-lucide="chevrons-right"></i>
+        </button>
+
+        <!-- Fullscreen -->
+        <button class="icon-btn" onclick="toggleFullscreen()" title="Fullscreen">
+            <i data-lucide="maximize"></i>
+        </button>
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+        const PDF_URL = 'https://book.renj.top/pdf/twice/Twice%20in%20a%20while_compressed%20(1).pdf';
+        const PDF_DISPLAY_NAME = 'Twice in a while';
+        const BG_MUSIC_URL = 'https://book.renj.top/pdf/twice/Olivia%20Rodrigo%20%20drop%20dead%20(Instrumental%20HQ).mp3'; 
+        // ==========================================
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        const audio = document.getElementById('bg-music');
+        const audioSource = document.getElementById('audio-source');
+        const musicPrompt = document.getElementById('music-prompt');
+        let musicStarted = false;
+        let totalPages = 0;
+        let aspectRatio = 1;
+        
+        // VIEW MODE: 'double' (Desktop) or 'single' (Phone)
+        // Default is forced to double as requested.
+        let currentViewMode = 'double';
+
+        async function initViewer() {
+            const flipbook = $('#flipbook');
+            document.getElementById('pdf-title').innerText = PDF_DISPLAY_NAME;
+
+            if (BG_MUSIC_URL) {
+                audioSource.src = BG_MUSIC_URL;
+                audio.load();
+                audio.volume = 0.5;
+            }
+
+            try {
+                const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+                totalPages = pdf.numPages;
+
+                for (let i = 1; i <= totalPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 2 });
+                    if (i === 1) aspectRatio = viewport.width / viewport.height;
+
+                    const pageDiv = $('<div class="page"></div>');
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    pageDiv.append(canvas);
+                    flipbook.append(pageDiv);
+                }
+
+                $('#loader').fadeOut();
+                flipbook.css('display', 'block');
+
+                // Initialize forced to 'double' regardless of screen width
+                flipbook.turn({
+                    display: currentViewMode,
+                    acceleration: true,
+                    elevation: 50,
+                    duration: 800,
+                    gradients: true,
+                    when: {
+                        turning: function(e, page, view) { 
+                            updateCounter(page, totalPages);
+                            attemptMusic(); 
+                        }
+                    }
+                });
+
+                resizeFlipbook();
+                updateCounter(1, totalPages);
+                updateViewModeUI();
+                lucide.createIcons();
+
+                // Keyboard Navigation
+                $(window).bind('keydown', (e) => {
+                    if (e.keyCode == 37) flipbook.turn('previous');
+                    else if (e.keyCode == 39) flipbook.turn('next');
+                });
+
+                // Scroll Navigation
+                window.addEventListener('wheel', (e) => {
+                    const now = Date.now();
+                    if (window.lastScroll && now - window.lastScroll < 600) return;
+                    if (e.deltaY > 0) { flipbook.turn('next'); window.lastScroll = now; }
+                    else if (e.deltaY < 0) { flipbook.turn('previous'); window.lastScroll = now; }
+                }, { passive: true });
+
+                // Touch Swipe
+                const mc = new Hammer(document.getElementById('viewport'));
+                mc.on("swipeleft", () => flipbook.turn("next"));
+                mc.on("swiperight", () => flipbook.turn("previous"));
+
+                $(window).resize(resizeFlipbook);
+                document.body.addEventListener('click', attemptMusic, { once: false });
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('status-text').innerHTML = "Access Denied / PDF Error";
+            }
+        }
+
+        // UNRESPONSIVE LOGIC: resizeFlipbook now uses currentViewMode state instead of window width
+        function resizeFlipbook() {
+            const flipbook = $('#flipbook');
+            const containerW = window.innerWidth;
+            const containerH = window.innerHeight;
+            let bookH, bookW;
+
+            if (currentViewMode === 'single') {
+                // Phone View Layout
+                bookW = containerW * 0.9;
+                bookH = bookW / aspectRatio;
+                if (bookH > containerH * 0.75) { 
+                    bookH = containerH * 0.75; 
+                    bookW = bookH * aspectRatio; 
+                }
+            } else {
+                // Desktop (Two-Page) Layout
+                bookH = containerH * 0.75;
+                bookW = bookH * aspectRatio * 2;
+                if (bookW > containerW * 0.95) { 
+                    bookW = containerW * 0.95; 
+                    bookH = (bookW / 2) / aspectRatio; 
+                }
+            }
+            
+            flipbook.turn('size', bookW, bookH);
+        }
+
+        function toggleViewMode() {
+            const flipbook = $('#flipbook');
+            currentViewMode = (currentViewMode === 'double') ? 'single' : 'double';
+            
+            // Apply mode change to turn.js
+            flipbook.turn('display', currentViewMode);
+            
+            // Refresh UI
+            updateViewModeUI();
+            resizeFlipbook();
+            updateCounter(flipbook.turn('page'), totalPages);
+        }
+
+        function updateViewModeUI() {
+            const icon = document.getElementById('view-mode-icon');
+            // Show icon of the mode you can switch TO
+            if (currentViewMode === 'double') {
+                icon.setAttribute('data-lucide', 'smartphone');
+            } else {
+                icon.setAttribute('data-lucide', 'monitor');
+            }
+            lucide.createIcons();
+        }
+
+        function jumpToPage(p) { $('#flipbook').turn('page', p); }
+        function jumpToLast() { $('#flipbook').turn('page', totalPages); }
+
+        function attemptMusic() {
+            if (musicStarted || !BG_MUSIC_URL) return;
+            audio.play().then(() => {
+                musicStarted = true;
+                musicPrompt.style.display = 'none';
+            }).catch(() => {
+                musicPrompt.style.display = 'block';
+            });
+        }
+
+        function startMusicManual() {
+            audio.play();
+            musicStarted = true;
+            musicPrompt.style.display = 'none';
+        }
+
+        function toggleMute() {
+            audio.muted = !audio.muted;
+            document.getElementById('volume-icon').setAttribute('data-lucide', audio.muted ? 'volume-x' : 'volume-2');
+            lucide.createIcons();
+        }
+
+        function updateVolume(val) {
+            audio.volume = val;
+            audio.muted = (val == 0);
+            const icon = document.getElementById('volume-icon');
+            icon.setAttribute('data-lucide', val == 0 ? 'volume-x' : (val < 0.5 ? 'volume-1' : 'volume-2'));
+            lucide.createIcons();
+        }
+
+        function updateCounter(current, total) {
+            let label;
+            if (currentViewMode === 'single' || current === 1) {
+                label = current;
+            } else if (current >= total && total % 2 === 0) {
+                label = total;
+            } else {
+                label = `${current}-${current + 1}`;
+            }
+            document.getElementById('page-counter').innerText = `PAGE ${label} / ${total}`;
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => console.error(e));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        $(document).ready(initViewer);
+    </script>
+</body>
+</html>
