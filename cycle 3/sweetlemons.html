@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sweet Lemons & Oranges | Cycle 3</title>
+    <title>Sweet Lemons & Blood Oranges | Cycle 3</title>
     
     <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -97,17 +97,44 @@
         }
 
         #flipbook .page {
-            background: white;
+            background: #141414;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
+            position: relative;
         }
 
         canvas {
             max-width: 100%;
             max-height: 100%;
             display: block;
+        }
+
+        /* Premium Page Loading Placeholder */
+        .page-loading-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            background: #141414;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .mini-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-top-color: rgba(255,255,255,0.6);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
         }
 
         /* Bottom UI Controls */
@@ -183,8 +210,6 @@
             justify-content: center;
             align-items: center;
             gap: 20px;
-            padding: 20px;
-            text-align: center;
         }
 
         .spinner {
@@ -235,7 +260,7 @@
 
     <div id="top-bar">
         <div id="page-counter">PAGE 1 / -</div>
-        <div id="pdf-title">SWEET LEMONS & ORANGES | CYCLE 3</div>
+        <div id="pdf-title">SWEET LEMONS & BLOOD ORANGES | CYCLE 3</div>
     </div>
 
     <div id="music-prompt" onclick="startMusicManual()">
@@ -294,13 +319,10 @@
         // ==========================================
         // CONFIGURATION
         // ==========================================
-        const PDF_URL = '/pdf/1_compressed.pdf';
-        const PDF_DISPLAY_NAME = 'Sweet Lemons & Oranges';
-        const BG_MUSIC_URL = '/music/thislovetv.mp3'; 
+        const PDF_URL = 'https://book.renj.top/pdf/1_compressed.pdf';
+        const PDF_DISPLAY_NAME = 'Sweet Lemons & Blood Oranges';
+        const BG_MUSIC_URL = 'https://book.renj.top/music/thislovetv.mp3'; 
         // ==========================================
-
-        // Disable Web Workers to bypass the strict Cross-Origin worker CDN block
-        delete pdfjsLib.GlobalWorkerOptions.workerSrc;
 
         const audio = document.getElementById('bg-music');
         const audioSource = document.getElementById('audio-source');
@@ -309,6 +331,10 @@
         let totalPages = 0;
         let aspectRatio = 1;
         
+        let pdfDoc = null;
+        const renderedPages = new Set();
+        const renderingPages = new Set();
+
         // VIEW MODE: 'double' (Desktop) or 'single' (Phone)
         let currentViewMode = 'double';
 
@@ -323,29 +349,37 @@
             }
 
             try {
-                const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
-                totalPages = pdf.numPages;
+                // STEP 1: Load Web Worker securely using Same-Origin Blobs to bypass strict CDN blocks
+                const workerCDNUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                const workerResponse = await fetch(workerCDNUrl);
+                const workerScript = await workerResponse.text();
+                const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+                pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
 
+                // STEP 2: Load Document Structure Only
+                pdfDoc = await pdfjsLib.getDocument(PDF_URL).promise;
+                totalPages = pdfDoc.numPages;
+
+                // Load aspect ratio dynamically from Page 1
+                const firstPage = await pdfDoc.getPage(1);
+                const firstViewport = firstPage.getViewport({ scale: 1 });
+                aspectRatio = firstViewport.width / firstViewport.height;
+
+                // STEP 3: Create blank page shells immediately (No expensive rendering upfront!)
                 for (let i = 1; i <= totalPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const viewport = page.getViewport({ scale: 2 });
-                    if (i === 1) aspectRatio = viewport.width / viewport.height;
-
-                    const pageDiv = $('<div class="page"></div>');
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-
-                    await page.render({ canvasContext: context, viewport: viewport }).promise;
-                    pageDiv.append(canvas);
+                    const pageDiv = $(`<div class="page" data-page="${i}">
+                        <div class="page-loading-placeholder">
+                            <div class="mini-spinner"></div>
+                            <span>Syncing...</span>
+                        </div>
+                    </div>`);
                     flipbook.append(pageDiv);
                 }
 
                 $('#loader').fadeOut();
                 flipbook.css('display', 'block');
 
-                // Initialize forced to 'double' layout first
+                // Initialize turn.js with blank containers
                 flipbook.turn({
                     display: currentViewMode,
                     acceleration: true,
@@ -355,12 +389,16 @@
                     when: {
                         turning: function(e, page, view) { 
                             updateCounter(page, totalPages);
+                            manageActivePages(page);
                             attemptMusic(); 
                         }
                     }
                 });
 
                 resizeFlipbook();
+                
+                // Immediately kick-start rendering for the first visible pages
+                manageActivePages(1);
                 updateCounter(1, totalPages);
                 updateViewModeUI();
                 lucide.createIcons();
@@ -389,11 +427,71 @@
 
             } catch (err) {
                 console.error(err);
-                document.getElementById('status-text').innerHTML = "Failed to load PDF: " + err.message;
+                document.getElementById('status-text').innerHTML = "Access Denied / PDF Error: " + err.message;
             }
         }
 
-        // Handles adaptive book sizing for layout choices
+        // Lazy loads nearby pages & destroys far away ones dynamically to handle high quality without crashing
+        async function manageActivePages(currentPage) {
+            if (!pdfDoc) return;
+
+            // Render window configuration (Render current page + 2 pages ahead/behind)
+            const bufferWindow = 2;
+            const pagesToLoad = [];
+            
+            for (let i = currentPage - bufferWindow; i <= currentPage + bufferWindow; i++) {
+                if (i >= 1 && i <= totalPages) {
+                    pagesToLoad.push(i);
+                }
+            }
+
+            // Render required pages asynchronously
+            pagesToLoad.forEach(pageNum => renderPageCanvas(pageNum));
+
+            // Evict pages that are too far away to keep GPU memory clean
+            for (let pageNum of renderedPages) {
+                if (Math.abs(pageNum - currentPage) > (bufferWindow + 1)) {
+                    const pageDiv = $(`.page[data-page="${pageNum}"]`);
+                    pageDiv.html(`
+                        <div class="page-loading-placeholder">
+                            <div class="mini-spinner"></div>
+                            <span>Syncing...</span>
+                        </div>
+                    `);
+                    renderedPages.delete(pageNum);
+                }
+            }
+        }
+
+        // Renders a single page canvas on-demand
+        async function renderPageCanvas(pageNum) {
+            if (renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
+
+            renderingPages.add(pageNum);
+            try {
+                const page = await pdfDoc.getPage(pageNum);
+                // Scale 2 provides gorgeous retina quality rendering. 
+                const viewport = page.getViewport({ scale: 2 });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                
+                const pageDiv = $(`.page[data-page="${pageNum}"]`);
+                pageDiv.empty().append(canvas);
+
+                renderedPages.add(pageNum);
+            } catch (err) {
+                console.error(`Error rendering page ${pageNum}:`, err);
+            } finally {
+                renderingPages.delete(pageNum);
+            }
+        }
+
+        // Sizing logic
         function resizeFlipbook() {
             const flipbook = $('#flipbook');
             const containerW = window.innerWidth;
@@ -401,7 +499,6 @@
             let bookH, bookW;
 
             if (currentViewMode === 'single') {
-                // Phone View Layout
                 bookW = containerW * 0.9;
                 bookH = bookW / aspectRatio;
                 if (bookH > containerH * 0.75) { 
@@ -409,7 +506,6 @@
                     bookW = bookH * aspectRatio; 
                 }
             } else {
-                // Desktop (Two-Page) Layout
                 bookH = containerH * 0.75;
                 bookW = bookH * aspectRatio * 2;
                 if (bookW > containerW * 0.95) { 
@@ -425,10 +521,8 @@
             const flipbook = $('#flipbook');
             currentViewMode = (currentViewMode === 'double') ? 'single' : 'double';
             
-            // Apply mode change to turn.js
             flipbook.turn('display', currentViewMode);
             
-            // Refresh UI
             updateViewModeUI();
             resizeFlipbook();
             updateCounter(flipbook.turn('page'), totalPages);
@@ -463,6 +557,7 @@
             musicPrompt.style.display = 'none';
         }
 
+        // Volume logic
         function toggleMute() {
             audio.muted = !audio.muted;
             document.getElementById('volume-icon').setAttribute('data-lucide', audio.muted ? 'volume-x' : 'volume-2');
