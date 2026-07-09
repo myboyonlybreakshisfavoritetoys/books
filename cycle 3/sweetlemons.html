@@ -183,6 +183,8 @@
             justify-content: center;
             align-items: center;
             gap: 20px;
+            padding: 20px;
+            text-align: center;
         }
 
         .spinner {
@@ -292,12 +294,13 @@
         // ==========================================
         // CONFIGURATION
         // ==========================================
-const PDF_URL = '../pdf/1_compressed.pdf';
-const PDF_DISPLAY_NAME = 'Sweet Lemons & Orange';
-const BG_MUSIC_URL = "../music/thislovetv.mp3"; 
-// ==========================================
+        const PDF_URL = '/pdf/1_compressed.pdf';
+        const PDF_DISPLAY_NAME = 'Sweet Lemons & Oranges';
+        const BG_MUSIC_URL = '/music/thislovetv.mp3'; 
+        // ==========================================
 
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        // Disable Web Workers to bypass the strict Cross-Origin worker CDN block
+        delete pdfjsLib.GlobalWorkerOptions.workerSrc;
 
         const audio = document.getElementById('bg-music');
         const audioSource = document.getElementById('audio-source');
@@ -307,7 +310,6 @@ const BG_MUSIC_URL = "../music/thislovetv.mp3";
         let aspectRatio = 1;
         
         // VIEW MODE: 'double' (Desktop) or 'single' (Phone)
-        // Default is forced to double as requested.
         let currentViewMode = 'double';
 
         async function initViewer() {
@@ -343,7 +345,7 @@ const BG_MUSIC_URL = "../music/thislovetv.mp3";
                 $('#loader').fadeOut();
                 flipbook.css('display', 'block');
 
-                // Initialize forced to 'double' regardless of screen width
+                // Initialize forced to 'double' layout first
                 flipbook.turn({
                     display: currentViewMode,
                     acceleration: true,
@@ -387,11 +389,11 @@ const BG_MUSIC_URL = "../music/thislovetv.mp3";
 
             } catch (err) {
                 console.error(err);
-                document.getElementById('status-text').innerHTML = "Access Denied / PDF Error";
+                document.getElementById('status-text').innerHTML = "Failed to load PDF: " + err.message;
             }
         }
 
-        // UNRESPONSIVE LOGIC: resizeFlipbook now uses currentViewMode state instead of window width
+        // Handles adaptive book sizing for layout choices
         function resizeFlipbook() {
             const flipbook = $('#flipbook');
             const containerW = window.innerWidth;
@@ -434,7 +436,6 @@ const BG_MUSIC_URL = "../music/thislovetv.mp3";
 
         function updateViewModeUI() {
             const icon = document.getElementById('view-mode-icon');
-            // Show icon of the mode you can switch TO
             if (currentViewMode === 'double') {
                 icon.setAttribute('data-lucide', 'smartphone');
             } else {
